@@ -1,6 +1,6 @@
 # Vulnerabilities
 
-Vulnerabilities is a database generated twice hourly by Fleet containing enriched CVEs matched to CPEs. Fleet servers use this database to identify vulnerable versions of software in Fleet's software inventory.
+Vulnerabilities generates JSON feeds twice hourly by Fleet containing enriched CVEs matched to CPEs. Fleet servers use this information to identify vulnerable versions of software in Fleet's software inventory.
 
 > #### 🚧 Vulnerabilities is currently pre-release.
 >
