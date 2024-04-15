@@ -58,7 +58,6 @@ jobs:
           go mod download
           export VULNCHECK_API_KEY=${{ secrets.VULNCHECK_API_KEY }}
           go run cmd/cve/generate.go --db_dir ./cvefeed --debug
-          rm ./cvefeed/vulncheck.zip
             
       - name: Current date
         id: date
