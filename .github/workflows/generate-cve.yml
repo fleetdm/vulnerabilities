@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       clean:
-        description: 'Download fresh feeds from NVD'
+        description: 'Download fresh feeds from NVD.  Any value other than "false" will trigger a clean download.'
         required: true
         default: 'false'
 
