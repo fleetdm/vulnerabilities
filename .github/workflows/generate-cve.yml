@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
+    inputs:
+      clean:
+        description: 'Download fresh feeds from NVD'
+        required: true
+        default: 'false'
 
 permissions:
   contents: write
@@ -14,10 +19,12 @@ permissions:
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   VULNCHECK_API_KEY: ${{ secrets.VULNCHECK_API_KEY }}
+  VULNERABILITIES_CLEAN: ${{ github.event.inputs.clean || 'false' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Harden Runner
@@ -56,7 +63,6 @@ jobs:
         run: |
           cd fleet
           go mod download
-          export VULNCHECK_API_KEY=${{ secrets.VULNCHECK_API_KEY }}
           go run cmd/cve/generate.go --db_dir ./cvefeed --debug
             
       - name: Current date
