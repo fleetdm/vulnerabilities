@@ -22,9 +22,9 @@ env:
   VULNERABILITIES_CLEAN: ${{ github.event.inputs.clean || 'false' }}
 
 jobs:
-  build:
+  build:  
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
 
     steps:
       - name: Harden Runner
