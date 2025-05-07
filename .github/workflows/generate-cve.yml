@@ -88,6 +88,11 @@ jobs:
       - name: Pull Amazon Linux 2023 vulnerabilities
         run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2023 --dbpath ./fleet/cvefeed/amzn_2023.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
 
+      - name: Validate NVD Feeds
+        run: |
+          cd fleet
+          go run cmd/cve/validate/main.go --db_dir ./cvefeed --debug
+
       - name: Compress Amazon Linux vulnerability sqlite files
         run: xz ./fleet/cvefeed/*.sqlite3
             
