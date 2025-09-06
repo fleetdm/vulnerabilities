@@ -5,13 +5,13 @@ on:
     branches:
       - main
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       clean:
         description: 'Download fresh feeds from NVD.  Any value other than "false" will trigger a clean download.'
         required: true
-        default: 'false'
+        default: "false"
 
 permissions:
   contents: write
@@ -22,7 +22,7 @@ env:
   VULNERABILITIES_CLEAN: ${{ github.event.inputs.clean || 'false' }}
 
 jobs:
-  build:  
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -65,7 +65,7 @@ jobs:
         uses: actions/setup-go@v4.1.0
         with:
           cache: false
-          go-version: '^1.24.2'
+          go-version: "^1.24.2"
 
       - name: Generate NVD Feeds
         run: |
@@ -87,6 +87,16 @@ jobs:
         run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2022 --dbpath ./fleet/cvefeed/amzn_2022.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull Amazon Linux 2023 vulnerabilities
         run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2023 --dbpath ./fleet/cvefeed/amzn_2023.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+      - name: Pull RHEL 5 vulnerabilities
+        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 5 --dbpath ./fleet/cvefeed/rhel_05.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+      - name: Pull RHEL 6 vulnerabilities
+        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 6 --dbpath ./fleet/cvefeed/rhel_06.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+      - name: Pull RHEL 7 vulnerabilities
+        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 7 --dbpath ./fleet/cvefeed/rhel_07.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+      - name: Pull RHEL 8 vulnerabilities
+        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 8 --dbpath ./fleet/cvefeed/rhel_08.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+      - name: Pull RHEL 9 vulnerabilities
+        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2023 --dbpath ./fleet/cvefeed/rhel_09.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
 
       - name: Validate NVD Feeds
         run: |
@@ -95,7 +105,7 @@ jobs:
 
       - name: Compress Amazon Linux vulnerability sqlite files
         run: xz ./fleet/cvefeed/*.sqlite3
-            
+
       - name: Current date
         id: date
         run: |
@@ -105,7 +115,7 @@ jobs:
         run: |
           git tag -a cve-${{ steps.date.outputs.date }} -m "release ${{ steps.date.outputs.date }}"
           git push origin cve-${{ steps.date.outputs.date }}
-          
+
       - name: Release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v0.1.15
         with:
