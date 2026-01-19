@@ -28,17 +28,17 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@63c24ba6bd7ba022e95695ff85de572c04a18142 # v2.7.0
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
 
       - name: Import GPG Key
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec # v6.3.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
@@ -46,7 +46,7 @@ jobs:
           git_commit_gpgsign: true
 
       - name: Checkout Fleet
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: fleetdm/fleet
           fetch-depth: 1
@@ -54,7 +54,7 @@ jobs:
           path: fleet
 
       - name: Checkout goval-dictionary
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: vulsio/goval-dictionary
           fetch-depth: 1
@@ -62,7 +62,7 @@ jobs:
           path: goval-dictionary
 
       - name: Setup Go
-        uses: actions/setup-go@v4.1.0
+        uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe # v4.1.0
         with:
           cache: false
           go-version: "^1.24.2"
@@ -126,7 +126,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete Old Releases
-        uses: dev-drprasad/delete-older-releases@v0.3.2
+        uses: dev-drprasad/delete-older-releases@5494cd8b61c31b3c7a15f6267901195ec7df64e8 # v0.3.2
         with:
           delete_tag_pattern: ^cve-.*
           keep_latest: 144
