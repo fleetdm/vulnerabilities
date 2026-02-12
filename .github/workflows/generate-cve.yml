@@ -53,19 +53,11 @@ jobs:
           ref: main
           path: fleet
 
-      - name: Checkout goval-dictionary
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: vulsio/goval-dictionary
-          fetch-depth: 1
-          ref: adcb4dc66908aa84a0aabcd376af0e6e677ea2fd
-          path: goval-dictionary
-
       - name: Setup Go
         uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe # v4.1.0
         with:
           cache: false
-          go-version: "^1.24.2"
+          go-version: "^1.25.7"
 
       - name: Generate NVD Feeds
         run: |
@@ -75,35 +67,35 @@ jobs:
 
       - name: Build goval-dictionary and ensure destination dir exists
         run: |
-          cd goval-dictionary
+          cd fleet/third_party/goval-dictionary
           make build
-          mkdir -p ../fleet/cvefeed
+          mkdir -p ../../cvefeed
 
       - name: Pull Amazon Linux 1 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 1 --dbpath ./fleet/cvefeed/amzn_01.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch amazon 1 --dbpath ./fleet/cvefeed/amzn_01.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull Amazon Linux 2 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2 --dbpath ./fleet/cvefeed/amzn_02.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch amazon 2 --dbpath ./fleet/cvefeed/amzn_02.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull Amazon Linux 2022 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2022 --dbpath ./fleet/cvefeed/amzn_2022.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch amazon 2022 --dbpath ./fleet/cvefeed/amzn_2022.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull Amazon Linux 2023 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2023 --dbpath ./fleet/cvefeed/amzn_2023.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch amazon 2023 --dbpath ./fleet/cvefeed/amzn_2023.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull RHEL 5 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 5 --dbpath ./fleet/cvefeed/rhel_05.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch redhat 5 --dbpath ./fleet/cvefeed/rhel_05.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull RHEL 6 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 6 --dbpath ./fleet/cvefeed/rhel_06.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch redhat 6 --dbpath ./fleet/cvefeed/rhel_06.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull RHEL 7 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 7 --dbpath ./fleet/cvefeed/rhel_07.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch redhat 7 --dbpath ./fleet/cvefeed/rhel_07.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull RHEL 8 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch redhat 8 --dbpath ./fleet/cvefeed/rhel_08.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch redhat 8 --dbpath ./fleet/cvefeed/rhel_08.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
       - name: Pull RHEL 9 vulnerabilities
-        run: for i in {1..3}; do goval-dictionary/goval-dictionary fetch amazon 2023 --dbpath ./fleet/cvefeed/rhel_09.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
+        run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch redhat 9 --dbpath ./fleet/cvefeed/rhel_09.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
 
       - name: Validate NVD Feeds
         run: |
           cd fleet
           go run cmd/cve/validate/main.go --db_dir ./cvefeed --debug
 
-      - name: Compress Amazon Linux vulnerability sqlite files
+      - name: Compress goval sqlite files
         run: xz ./fleet/cvefeed/*.sqlite3
 
       - name: Current date
