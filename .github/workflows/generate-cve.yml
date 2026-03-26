@@ -90,9 +90,11 @@ jobs:
       - name: Pull RHEL 9 vulnerabilities
         run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch redhat 9 --dbpath ./fleet/cvefeed/rhel_09.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
 
-      - name: Get week number for cache key
-        id: cache-week
-        run: echo "week=$(date +'%Y-W%U')" >> $GITHUB_OUTPUT
+      - name: Get week and date for cache key
+        id: cache-key
+        run: |
+          echo "week=$(date -u +'%G-W%V')" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: Cache Ubuntu Security Notices repo
         uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
@@ -100,7 +102,9 @@ jobs:
           path: |
             fleet/cmd/osv-processor/ubuntu-security-notices/.git
             fleet/cmd/osv-processor/ubuntu-security-notices/osv
-          key: osv-repo-${{ steps.cache-week.outputs.week }}
+          key: osv-repo-${{ steps.cache-key.outputs.week }}-${{ steps.cache-key.outputs.date }}
+          restore-keys: |
+            osv-repo-${{ steps.cache-key.outputs.week }}-
 
       - name: Generate OSV Ubuntu Artifacts
         run: |
