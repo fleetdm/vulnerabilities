@@ -90,6 +90,42 @@ jobs:
       - name: Pull RHEL 9 vulnerabilities
         run: for i in {1..3}; do fleet/third_party/goval-dictionary/goval-dictionary fetch redhat 9 --dbpath ./fleet/cvefeed/rhel_09.sqlite3 && s=0 && break || s=$? && sleep 2; done; (exit $s)
 
+      - name: Get week and date for cache key
+        id: cache-key
+        run: |
+          echo "week=$(date -u +'%G-W%V')" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Cache Ubuntu Security Notices repo
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+        with:
+          path: |
+            fleet/cmd/osv-processor/ubuntu-security-notices/.git
+            fleet/cmd/osv-processor/ubuntu-security-notices/osv
+          key: osv-repo-${{ steps.cache-key.outputs.week }}-${{ steps.cache-key.outputs.date }}
+          restore-keys: |
+            osv-repo-${{ steps.cache-key.outputs.week }}-
+
+      - name: Generate OSV Ubuntu Artifacts
+        run: |
+          echo "=== Generating OSV Artifacts for Ubuntu ===" 
+          cd $GITHUB_WORKSPACE/fleet/cmd/osv-processor
+          
+          # Sync OSV data from Canonical (shallow clone with rolling window)
+          chmod +x sync-and-detect-changes.sh
+          ./sync-and-detect-changes.sh
+          
+          # Generate artifacts for ALL Ubuntu versions (auto-detected)
+          # Includes full artifacts + today's and yesterday's deltas
+          go run . \
+            --input ./ubuntu-security-notices/osv/cve \
+            --output $GITHUB_WORKSPACE/fleet/cvefeed \
+            --changed-files-today changed_files_today.txt \
+            --changed-files-yesterday changed_files_yesterday.txt
+          
+          echo "OSV artifacts generated successfully"
+          ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/osv-ubuntu-*.json.gz
+
       - name: Validate NVD Feeds
         run: |
           cd fleet
