@@ -108,13 +108,13 @@ jobs:
 
       - name: Generate OSV Ubuntu Artifacts
         run: |
-          echo "=== Generating OSV Artifacts for Ubuntu ===" 
+          echo "=== Generating OSV Artifacts for Ubuntu ==="
           cd $GITHUB_WORKSPACE/fleet/cmd/osv-processor
-          
+
           # Sync OSV data from Canonical (shallow clone with rolling window)
           chmod +x sync-and-detect-changes.sh
           ./sync-and-detect-changes.sh
-          
+
           # Generate artifacts for ALL Ubuntu versions (auto-detected)
           # Includes full artifacts + today's and yesterday's deltas
           go run . \
@@ -122,9 +122,26 @@ jobs:
             --output $GITHUB_WORKSPACE/fleet/cvefeed \
             --changed-files-today changed_files_today.txt \
             --changed-files-yesterday changed_files_yesterday.txt
-          
+
           echo "OSV artifacts generated successfully"
           ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/osv-ubuntu-*.json.gz
+
+      - name: Generate OSV RHEL Artifacts
+        run: |
+          echo "=== Generating OSV Artifacts for RHEL ==="
+          curl -sL "https://storage.googleapis.com/osv-vulnerabilities/Red%20Hat/all.zip" \
+            -o /tmp/rhel-osv.zip
+          unzip -q /tmp/rhel-osv.zip -d /tmp/rhel-osv
+
+          cd $GITHUB_WORKSPACE/fleet/cmd/osv-processor
+          go run . \
+            --platform rhel \
+            --input /tmp/rhel-osv \
+            --output $GITHUB_WORKSPACE/fleet/cvefeed \
+            --versions "7,8,9,10"
+
+          echo "RHEL OSV artifacts generated successfully"
+          ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/osv-rhel-*.json.gz
 
       - name: Validate NVD Feeds
         run: |
