@@ -60,6 +60,8 @@ jobs:
           go-version: "^1.25.7"
 
       - name: Generate NVD Feeds
+        env:
+          NETWORK_TEST_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd fleet
           go mod download
