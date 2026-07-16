@@ -143,6 +143,24 @@ jobs:
           echo "RHEL OSV artifacts generated successfully"
           ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/osv-rhel-*.json.gz
 
+      - name: Generate OSV Android Artifacts
+        run: |
+          echo "=== Generating OSV Artifacts for Android ==="
+          curl -sL "https://storage.googleapis.com/osv-vulnerabilities/Android/all.zip" \
+            -o /tmp/android-osv.zip
+          unzip -q /tmp/android-osv.zip -d /tmp/android-osv
+
+          cd $GITHUB_WORKSPACE/fleet/cmd/osv-processor
+          # No --versions filter: generate artifacts for all Android versions
+          # discovered in the OSV corpus so every host-reported version is covered.
+          go run . \
+            --platform android \
+            --input /tmp/android-osv \
+            --output $GITHUB_WORKSPACE/fleet/cvefeed
+
+          echo "Android OSV artifacts generated successfully"
+          ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/osv-android-*.json.gz
+
       - name: Validate NVD Feeds
         run: |
           cd fleet
