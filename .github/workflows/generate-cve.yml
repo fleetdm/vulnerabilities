@@ -13,6 +13,13 @@ on:
         required: true
         default: "false"
 
+# Runs normally finish well inside the 30 minute schedule. When they don't (e.g. a
+# full NVD sync after a broken release), queue instead of running several full
+# syncs against the NVD API at once.
+concurrency:
+  group: generate-cve
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -179,14 +186,29 @@ jobs:
           git tag -a cve-${{ steps.date.outputs.date }} -m "release ${{ steps.date.outputs.date }}"
           git push origin cve-${{ steps.date.outputs.date }}
 
-      - name: Release
+      # Fleet servers pick the newest non-draft cve-* release, so keep the release a
+      # draft until every asset has uploaded. A failed upload then leaves an
+      # invisible draft instead of a release missing files.
+      - name: Release (draft)
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v0.1.15
         with:
+          draft: true
           files: |
             fleet/cvefeed/*
           tag_name: cve-${{ steps.date.outputs.date }}
           target_commitish: main
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish release
+        run: |
+          tag=cve-${{ steps.date.outputs.date }}
+          expected=$(find fleet/cvefeed -maxdepth 1 -type f | wc -l)
+          actual=$(gh release view "$tag" -R ${{ github.repository }} --json assets --jq '.assets | length')
+          if [ "$expected" != "$actual" ]; then
+            echo "expected $expected assets, release has $actual"
+            exit 1
+          fi
+          gh release edit "$tag" -R ${{ github.repository }} --draft=false
 
       - name: Delete Old Releases
         uses: dev-drprasad/delete-older-releases@5494cd8b61c31b3c7a15f6267901195ec7df64e8 # v0.3.2
