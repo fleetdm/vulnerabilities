@@ -168,6 +168,126 @@ jobs:
           echo "Android OSV artifacts generated successfully"
           ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/osv-android-*.json.gz
 
+      # The Go vulnerability database is mirrored so Fleet servers never reach vuln.go.dev
+      # directly, the same reason the OSV feeds are mirrored. The artifact rides on this release:
+      # Fleet only reads assets from the latest one. The generator is cmd/govulndb-mirror in
+      # fleetdm/fleet and the consumer is server/vulnerabilities/govulndb/; README.md here covers
+      # the artifact contract.
+      #
+      # The publisher refuses to ship a snapshot much smaller than the last one that shipped, so
+      # find that one first, scanning back through releases rather than reading only the newest: a
+      # run that skipped publishing leaves a release carrying no Go artifact at all, and the drop
+      # check must not quietly turn itself off after one skip.
+      - name: Find last published Go vulnerability database artifact
+        id: govulndb-previous
+        run: |
+          repo=${{ github.repository }}
+          dir="$RUNNER_TEMP/govulndb-previous"
+          mkdir -p "$dir"
+
+          # The releases API returns each release's assets inline. Walk every page: the newest
+          # page covers about two days at this cadence while releases are kept for three, so a
+          # single page can miss a baseline that is still there and report a first run instead,
+          # which would turn the drop check off while something to compare against exists.
+          find_previous() {
+            local found tag asset
+            found=$(gh api --paginate -X GET "repos/$repo/releases" -f per_page=100 --jq '
+              map(select(.draft | not))
+              | map({tag: .tag_name, asset: ([.assets[].name | select(startswith("govulndb-") and endswith(".json.gz"))] | sort | last)})
+              | map(select(.asset)) | first // empty | "\(.tag) \(.asset)"' | head -n 1) || return 1
+
+            # Nothing published anywhere, so there is genuinely nothing to compare against. The
+            # publisher needs that said outright: an absent baseline is otherwise indistinguishable
+            # from a workflow that stopped passing one, which is how a drop check goes quiet.
+            if [ -z "$found" ]; then
+              echo "first_run=true" >> "$GITHUB_OUTPUT"
+              echo "no Go vulnerability database artifact published yet; publishing without the drop check"
+              return 0
+            fi
+
+            read -r tag asset <<< "$found"
+            gh release download "$tag" -R "$repo" --pattern "$asset" --dir "$dir" --clobber || return 1
+            echo "previous=$dir/$asset" >> "$GITHUB_OUTPUT"
+            echo "comparing against $asset from $tag"
+          }
+
+          for attempt in 1 2 3; do
+            find_previous && exit 0
+            sleep $((attempt * 5))
+          done
+
+          # Publishing without the drop check is publishing blind, and failing here would take the
+          # NVD and OSV artifacts down with it over a GitHub API hiccup. Skip and alert instead.
+          echo "skip_reason=could not reach the GitHub API to find the last published artifact, so this run cannot make the drop check; skipped rather than publishing unchecked" >> "$GITHUB_OUTPUT"
+
+      # Exits zero even when it decides not to publish: a bad upstream day should not page anyone,
+      # and attaching no asset leaves Fleet servers on the last good artifact they downloaded.
+      - name: Generate Go vulnerability database artifact
+        id: govulndb
+        if: steps.govulndb-previous.outputs.skip_reason == ''
+        run: |
+          echo "=== Generating Go vulnerability database artifact ==="
+          cd $GITHUB_WORKSPACE/fleet/cmd/govulndb-mirror
+
+          # The publisher requires a baseline unless the run says in so many words that it is the
+          # first, so that a workflow which quietly stopped passing one cannot publish unchecked.
+          previous="${{ steps.govulndb-previous.outputs.previous }}"
+          if [ -n "$previous" ]; then
+            baseline=(--previous "$previous")
+          else
+            baseline=(--first-run)
+          fi
+
+          go run . --output $GITHUB_WORKSPACE/fleet/cvefeed "${baseline[@]}"
+          ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/govulndb-*.json.gz || true
+
+      # Skipping is safe but silent: Fleet keeps serving the artifact it already has, so weeks of
+      # stale data look exactly like weeks of healthy runs from the outside. This alert is the only
+      # thing that says otherwise, so it names the check that tripped and by how much.
+      - name: Alert when the Go vulnerability database artifact was not published
+        if: steps.govulndb.outputs.skipped == 'true' || steps.govulndb-previous.outputs.skip_reason != ''
+        uses: slackapi/slack-github-action@16b6c78ee73689a627b65332b34e5d409c7299da # v1.18.0
+        with:
+          payload: |
+            {
+              "text": "Go vulnerability database artifact was not published\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The Go vulnerability database artifact was not published: ${{ steps.govulndb.outputs.reason || steps.govulndb-previous.outputs.skip_reason }}\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_G_HELP_P1_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      # A shrinking snapshot deletes vulnerabilities off customer hosts, so the one run where
+      # nothing checks for that says so. Expected only on the first publish.
+      - name: Alert when the Go vulnerability database artifact published with no drop check
+        if: steps.govulndb-previous.outputs.first_run == 'true' && steps.govulndb.outputs.skipped == 'false'
+        uses: slackapi/slack-github-action@16b6c78ee73689a627b65332b34e5d409c7299da # v1.18.0
+        with:
+          payload: |
+            {
+              "text": "Go vulnerability database artifact published with no drop check\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The Go vulnerability database artifact was published with no drop check: no previously published artifact to compare against\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_G_HELP_P1_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
       - name: Validate NVD Feeds
         run: |
           cd fleet
