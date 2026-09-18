@@ -185,18 +185,23 @@ jobs:
           dir="$RUNNER_TEMP/govulndb-previous"
           mkdir -p "$dir"
 
-          # One call: the releases API returns each release's assets inline. 100 releases is about
-          # two days at this workflow's cadence, so the baseline outlives a long run of skips.
+          # The releases API returns each release's assets inline. Walk every page: the newest
+          # page covers about two days at this cadence while releases are kept for three, so a
+          # single page can miss a baseline that is still there and report a first run instead,
+          # which would turn the drop check off while something to compare against exists.
           find_previous() {
             local found tag asset
-            found=$(gh api -X GET "repos/$repo/releases" -f per_page=100 --jq '
+            found=$(gh api --paginate -X GET "repos/$repo/releases" -f per_page=100 --jq '
               map(select(.draft | not))
               | map({tag: .tag_name, asset: ([.assets[].name | select(startswith("govulndb-") and endswith(".json.gz"))] | sort | last)})
-              | map(select(.asset)) | first // empty | "\(.tag) \(.asset)"') || return 1
+              | map(select(.asset)) | first // empty | "\(.tag) \(.asset)"' | head -n 1) || return 1
 
+            # Nothing published anywhere, so there is genuinely nothing to compare against. The
+            # publisher needs that said outright: an absent baseline is otherwise indistinguishable
+            # from a workflow that stopped passing one, which is how a drop check goes quiet.
             if [ -z "$found" ]; then
-              echo "previous=" >> "$GITHUB_OUTPUT"
-              echo "no Go vulnerability database artifact published yet; the drop check has no baseline"
+              echo "first_run=true" >> "$GITHUB_OUTPUT"
+              echo "no Go vulnerability database artifact published yet; publishing without the drop check"
               return 0
             fi
 
@@ -223,9 +228,17 @@ jobs:
         run: |
           echo "=== Generating Go vulnerability database artifact ==="
           cd $GITHUB_WORKSPACE/fleet/cmd/govulndb-mirror
-          go run . \
-            --output $GITHUB_WORKSPACE/fleet/cvefeed \
-            --previous "${{ steps.govulndb-previous.outputs.previous }}"
+
+          # The publisher requires a baseline unless the run says in so many words that it is the
+          # first, so that a workflow which quietly stopped passing one cannot publish unchecked.
+          previous="${{ steps.govulndb-previous.outputs.previous }}"
+          if [ -n "$previous" ]; then
+            baseline=(--previous "$previous")
+          else
+            baseline=(--first-run)
+          fi
+
+          go run . --output $GITHUB_WORKSPACE/fleet/cvefeed "${baseline[@]}"
           ls -lh $GITHUB_WORKSPACE/fleet/cvefeed/govulndb-*.json.gz || true
 
       # Skipping is safe but silent: Fleet keeps serving the artifact it already has, so weeks of
@@ -237,13 +250,36 @@ jobs:
         with:
           payload: |
             {
-              "text": "Go vulnerability database artifact was not published",
+              "text": "Go vulnerability database artifact was not published\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}",
               "blocks": [
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "<!subteam^S09HZCQL7DG>, the *Go vulnerability database artifact was not published* this run.\n*Check that tripped:* ${{ steps.govulndb.outputs.reason || steps.govulndb-previous.outputs.skip_reason }}\nFleet servers keep the artifact they already downloaded, so Go binary detection is running on stale data rather than no data - and it stays stale until someone looks.\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}"
+                    "text": "The Go vulnerability database artifact was not published: ${{ steps.govulndb.outputs.reason || steps.govulndb-previous.outputs.skip_reason }}\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_G_HELP_P1_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      # A shrinking snapshot deletes vulnerabilities off customer hosts, so the one run where
+      # nothing checks for that says so. Expected only on the first publish.
+      - name: Alert when the Go vulnerability database artifact published with no drop check
+        if: steps.govulndb-previous.outputs.first_run == 'true' && steps.govulndb.outputs.skipped == 'false'
+        uses: slackapi/slack-github-action@16b6c78ee73689a627b65332b34e5d409c7299da # v1.18.0
+        with:
+          payload: |
+            {
+              "text": "Go vulnerability database artifact published with no drop check\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The Go vulnerability database artifact was published with no drop check: no previously published artifact to compare against\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}"
                   }
                 }
               ]
