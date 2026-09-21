@@ -12,6 +12,11 @@ on:
         description: 'Download fresh feeds from NVD.  Any value other than "false" will trigger a clean download.'
         required: true
         default: "false"
+      govulndb_skip_drop_check:
+        description: 'Publish the Go vulnerability database without comparing it against the last published artifact. Clears a publisher stuck behind a bad baseline; leaves nothing guarding against a shrinking snapshot.'
+        required: false
+        type: boolean
+        default: false
 
 # Runs normally finish well inside the 30 minute schedule. When they don't (e.g. a
 # full NVD sync after a broken release), queue instead of running several full
@@ -185,6 +190,16 @@ jobs:
           dir="$RUNNER_TEMP/govulndb-previous"
           mkdir -p "$dir"
 
+          # The manual way out. Every run measures itself against the last published artifact, so
+          # one bad baseline blocks every run after it and no amount of waiting clears it. Taking
+          # no baseline is the only thing that does, and --first-run refuses to sit alongside
+          # --previous, so the hunt is skipped outright rather than its result ignored. The alert
+          # below fires on the way out, so a run that published unchecked is never silent.
+          if [ "${{ github.event.inputs.govulndb_skip_drop_check }}" = "true" ]; then
+            echo "drop check turned off for this run; publishing without a baseline"
+            exit 0
+          fi
+
           # The releases API returns each release's assets inline. Walk every page: the newest
           # page covers about two days at this cadence while releases are kept for three, so a
           # single page can miss a baseline that is still there and report a first run instead,
@@ -200,7 +215,6 @@ jobs:
             # publisher needs that said outright: an absent baseline is otherwise indistinguishable
             # from a workflow that stopped passing one, which is how a drop check goes quiet.
             if [ -z "$found" ]; then
-              echo "first_run=true" >> "$GITHUB_OUTPUT"
               echo "no Go vulnerability database artifact published yet; publishing without the drop check"
               return 0
             fi
@@ -222,6 +236,12 @@ jobs:
 
       # Exits zero even when it decides not to publish: a bad upstream day should not page anyone,
       # and attaching no asset leaves Fleet servers on the last good artifact they downloaded.
+      #
+      # Which way it went is reported on this step's outputs, and nothing below writes them: the
+      # generator appends them to $GITHUB_OUTPUT itself (cmd/govulndb-mirror/main.go, execute).
+      # skipped is "true" or "false"; reason carries the check that tripped, one line, only when
+      # it skipped. The alert step reads both, so if they are ever renamed there the `if:` just
+      # evaluates false forever and the alert goes quiet instead of failing loudly.
       - name: Generate Go vulnerability database artifact
         id: govulndb
         if: steps.govulndb-previous.outputs.skip_reason == ''
@@ -262,13 +282,16 @@ jobs:
               ]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_G_HELP_P1_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_G_HELP_ENGINEERING_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
-      # A shrinking snapshot deletes vulnerabilities off customer hosts, so the one run where
-      # nothing checks for that says so. Expected only on the first publish.
+      # A shrinking snapshot deletes vulnerabilities off customer hosts, so a run where nothing
+      # checked for that says so. An empty previous is exactly that: it is what makes the step
+      # above pass --first-run, so the same signal gates the alert. Paired with skipped=false it
+      # means the run published without a baseline, whether because nothing has ever been
+      # published or because someone turned the check off; the run log says which.
       - name: Alert when the Go vulnerability database artifact published with no drop check
-        if: steps.govulndb-previous.outputs.first_run == 'true' && steps.govulndb.outputs.skipped == 'false'
+        if: steps.govulndb-previous.outputs.previous == '' && steps.govulndb.outputs.skipped == 'false'
         uses: slackapi/slack-github-action@16b6c78ee73689a627b65332b34e5d409c7299da # v1.18.0
         with:
           payload: |
@@ -279,13 +302,13 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "The Go vulnerability database artifact was published with no drop check: no previously published artifact to compare against\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}"
+                    "text": "The Go vulnerability database artifact was published with no drop check\nhttps://github.com/fleetdm/vulnerabilities/actions/runs/${{ github.run_id }}"
                   }
                 }
               ]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_G_HELP_P1_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_G_HELP_ENGINEERING_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
       - name: Validate NVD Feeds

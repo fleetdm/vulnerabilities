@@ -88,18 +88,28 @@ snapshot is held back when:
 | a report's `events` do not alternate introduced/fixed | a shape that cannot be paired without guessing, which would shift every bound |
 | a range carries a `type` other than `SEMVER` | version ordering this publisher does not implement |
 
-The threshold is `--max-drop-percent`, so it can be widened for a genuinely large withdrawal
-without a code change.
+The threshold is `--max-drop-percent`, which defaults to 5%, and the workflow does not pass it —
+widening it for a genuinely large withdrawal still means editing the generate step.
 
-When a check trips the run **skips the publish, alerts `#help-p1`, and exits zero** — a bad
-upstream day should not page anyone, and it must not take the NVD and OSV artifacts down with it.
-The release then carries no `govulndb-*` asset, Fleet's `Refresh` returns early without deleting
-anything, and servers keep analyzing against the artifact already on disk. The failure mode is
-stale data, not missing data.
+Turning the comparison off does not. A bad baseline blocks every run after it, and since each run
+measures itself against the last published artifact, nothing clears that on its own. Dispatch
+[Generate CVE](.github/workflows/generate-cve.yml) with **`govulndb_skip_drop_check`** checked and
+the run takes no baseline at all, publishing whatever upstream hands over. It is deliberately
+blunt: with the comparison off, nothing stands between a half-mirrored database and customer
+hosts, and the artifact it publishes becomes the baseline every later run is measured against. The
+`#help-engineering` alert fires on any run that publishes this way.
+
+When a check trips the run **skips the publish, alerts `#help-engineering`, and exits zero** — a
+bad upstream day should not page anyone, and it must not take the NVD and OSV artifacts down with
+it. The release then carries no `govulndb-*` asset, Fleet's `Refresh` returns early without
+deleting anything, and servers keep analyzing against the artifact already on disk. The failure
+mode is stale data, not missing data.
 
 That also means a publisher stuck in this state degrades silently: from the outside, weeks of
 stale data look exactly like weeks of healthy runs. The Slack alert is the only thing that says
-otherwise, so it fires on every run that skips and names the check that tripped and by how much.
+otherwise, so it fires on every run that skips this way and names the check that tripped and by
+how much. A local failure instead — a broken flag, an unwritable output directory — exits
+non-zero and turns the job red, which raises its own alarm.
 
 ### Running it locally
 
@@ -108,9 +118,10 @@ From a fleetdm/fleet checkout:
 ```bash
 go test ./cmd/govulndb-mirror/...
 
-# Write a snapshot without publishing anything.
+# Write a snapshot without publishing anything. A baseline is mandatory, so say outright that
+# there is none to compare against; otherwise the command exits 2.
 cd cmd/govulndb-mirror
-go run . --output /tmp/govulndb
+go run . --output /tmp/govulndb --first-run
 gunzip -c /tmp/govulndb/govulndb-*.json.gz | jq '.modules["helm.sh/helm/v3"]'
 
 # Exercise the drop check against an earlier snapshot.
