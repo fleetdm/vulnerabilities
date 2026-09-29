@@ -30,6 +30,13 @@ permissions:
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # The same secret twice, because two different clients read it. gh picks up GH_TOKEN on its
+  # own; the Go feed generator builds its own GitHub client and authenticates only when this is
+  # set. Without it that client goes out anonymous, and anonymous is 60 requests an hour per IP,
+  # shared with every other Actions job on the runner's address rather than budgeted to this
+  # repo. A run that draws an already-drained IP fails to seed from the last release and falls
+  # back to a full NVD sync, which outlives the job timeout and starves the release schedule.
+  FLEET_VULNERABILITIES_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   VULNCHECK_API_KEY: ${{ secrets.VULNCHECK_API_KEY }}
   VULNERABILITIES_CLEAN: ${{ github.event.inputs.clean || 'false' }}
 
