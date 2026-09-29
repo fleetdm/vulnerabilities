@@ -18,9 +18,10 @@ on:
         type: boolean
         default: false
 
-# Runs normally finish well inside the 30 minute schedule. When they don't (e.g. a
-# full NVD sync after a broken release), queue instead of running several full
-# syncs against the NVD API at once.
+# Runs normally finish well inside the 30 minute schedule, and the generator caps an
+# incremental run at 25 minutes. A manual clean run is the exception: it does a full
+# NVD sync that takes hours, so later runs queue behind it instead of running
+# alongside it against the NVD API.
 concurrency:
   group: generate-cve
   cancel-in-progress: false
@@ -34,8 +35,9 @@ env:
   # own; the Go feed generator builds its own GitHub client and authenticates only when this is
   # set. Without it that client goes out anonymous, and anonymous is 60 requests an hour per IP,
   # shared with every other Actions job on the runner's address rather than budgeted to this
-  # repo. A run that draws an already-drained IP fails to seed from the last release and falls
-  # back to a full NVD sync, which outlives the job timeout and starves the release schedule.
+  # repo. A run that draws an already-drained IP cannot seed from the last release, and the
+  # generator fails it within minutes rather than falling back to a full NVD sync, so every
+  # run that lands on a drained address is a cycle that publishes nothing.
   FLEET_VULNERABILITIES_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   VULNCHECK_API_KEY: ${{ secrets.VULNCHECK_API_KEY }}
   VULNERABILITIES_CLEAN: ${{ github.event.inputs.clean || 'false' }}
@@ -350,6 +352,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release
+        id: publish
         run: |
           tag=cve-${{ steps.date.outputs.date }}
           expected=$(find fleet/cvefeed -maxdepth 1 -type f | wc -l)
@@ -367,3 +370,60 @@ jobs:
           keep_latest: 144
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A draft only outlives its run when publishing failed, so it is always incomplete and can
+      # never be published. It is not harmless left behind: the releases API lists drafts first,
+      # whatever their age, to anyone with push access, and that now includes the feed generator,
+      # which pays API calls to page past each one. Nothing else removes them, since pruning old
+      # releases only runs after a successful publish.
+      #
+      # failure() alone would miss a job killed by timeout-minutes: GitHub ends that job as
+      # cancelled, not failed, and failure() stays false. cancelled() covers it. A run the
+      # concurrency group evicts never starts, so it leaves nothing behind.
+      #
+      # Once this run has published there is never anything to clean up, and deleting a published
+      # release's tag would turn it back into a draft, taking it away from Fleet servers. So the
+      # step does not run at all after a successful publish, rather than trusting a lookup to
+      # tell the two apart.
+      - name: Delete this run's draft release when the job does not finish
+        if: (failure() || cancelled()) && steps.publish.outcome != 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_REPO: ${{ github.repository }}
+          DATE: ${{ steps.date.outputs.date }}
+        run: |
+          [ -n "$DATE" ] || { echo "no release tag was chosen; nothing to clean up"; exit 0; }
+          tag="cve-$DATE"
+
+          # Only a clear "draft" or "no such release" acts. Anything else, a lookup that failed
+          # for another reason included, falls through and is left alone.
+          lookup=$(gh release view "$tag" --json isDraft --jq .isDraft 2>&1) || true
+          case "$lookup" in
+            true)
+              if gh release delete "$tag" --cleanup-tag --yes; then
+                echo "deleted draft release $tag and its tag"
+              else
+                echo "could not delete draft release $tag; it needs deleting by hand"
+                exit 1
+              fi
+              ;;
+            false)
+              echo "$tag is published; leaving it alone"
+              ;;
+            "release not found")
+              # The tag step may have pushed a tag before the release was ever made.
+              if out=$(gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$tag" 2>&1); then
+                echo "no release was made from $tag; deleted the orphaned tag"
+              elif grep -q "Reference does not exist" <<< "$out"; then
+                echo "no release or tag for $tag; nothing to clean up"
+              else
+                echo "could not delete the orphaned tag $tag: $out"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "could not look up release $tag, leaving it alone: $lookup"
+              exit 1
+              ;;
+          esac
